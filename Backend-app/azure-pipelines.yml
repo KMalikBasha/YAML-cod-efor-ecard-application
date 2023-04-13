@@ -1,0 +1,153 @@
+parameters:
+  - name: env
+    type: string
+    default: Dev
+    values:
+      - Dev
+      - Qa
+      - Prod
+  - name: refs
+    type: string
+    default: refs/heads/Dev
+    values:
+      - refs/heads/Dev
+      - refs/heads/Qa
+      - refs/heads/Prod
+
+resources:
+   repositories: 
+   - repository: Purshotham-backend-app
+     type: git
+     name: Malik/Purshotham-backend-app
+     ref: refs/heads/Dev
+
+trigger:
+- none 
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+
+stages:
+- stage: Build
+  displayName: 'Build Stage'
+  jobs:
+  - job: BuildJob
+    displayName: 'Build Job'
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+    - checkout: Purshotham-backend-app
+    - task: UseDotNet@2
+      displayName: 'Install .NET SDK'
+      inputs:
+        packageType: 'sdk'
+        version: 6.0.x
+
+    - task: DotNetCoreCLI@2
+      inputs:
+        command: 'restore'
+        projects: $(solution)
+      displayName: 'Restore dependencies'
+
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Build the project'
+      inputs:
+        command: 'build'
+        projects: '$(solution)'
+        arguments: '--configuration $(buildConfiguration)'
+
+    - task: DotNetCoreCLI@2
+      displayName: 'Publish the project'
+      inputs:
+        command: 'publish'
+        projects: '$(solution)'
+        arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+        zipAfterPublish: true
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish build artifacts'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+
+    - task: DownloadBuildArtifacts@0
+      displayName: 'Download build artifacts'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Build.ArtifactStagingDirectory)'
+- stage: DeployDev
+  dependsOn: Build
+  displayName: Deploy Dev
+  jobs:
+  - job: 
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+    - task: DownloadBuildArtifacts@0
+      displayName: 'Download build artifacts'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Build.ArtifactStagingDirectory)'
+    - task: AzureRmWebAppDeployment@4
+      inputs:
+        ConnectionType: 'AzureRM'
+        azureSubscription: 'My-New-service-connection'
+        appType: 'webApp'
+        WebAppName: 'Dev-for-backend-dotnet'
+        packageForLinux:  '$(Build.ArtifactStagingDirectory)/drop/*.zip'
+- stage: DeployQa
+  dependsOn: DeployDev
+  displayName: Deploy Qa
+  jobs:
+  - job: 
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+    - task: DownloadBuildArtifacts@0
+      displayName: 'Download build artifacts'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Build.ArtifactStagingDirectory)'
+    - task: AzureRmWebAppDeployment@4
+      inputs:
+        ConnectionType: 'AzureRM'
+        azureSubscription: 'My-New-service-connection'
+        appType: 'webApp'
+        WebAppName: 'Qa-for-backend-dotnet'
+        packageForLinux: '$(Build.ArtifactStagingDirectory)/drop/*.zip'
+- stage: DeployProd
+  dependsOn: DeployQa
+  displayName: Deploy Prod
+  jobs:
+  - job: 
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+    - task: DownloadBuildArtifacts@0
+      displayName: 'Download build artifacts'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Build.ArtifactStagingDirectory)'
+
+    - task: AzureRmWebAppDeployment@4
+      inputs:
+        ConnectionType: 'AzureRM'
+        azureSubscription: 'My-New-service-connection'
+        appType: 'webApp'
+        WebAppName: 'Prod-for-backend-dotnet'
+        packageForLinux: '$(Build.ArtifactStagingDirectory)/drop/*.zip'
+
